@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCS Music Streaming Test Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-section {
+            margin-bottom: 30px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 120px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-section {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .result-section.show {
+            display: block;
+        }
+
+        .result-header {
+            font-size: 18px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .streaming-badge {
+            background: #10b981;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #666;
+        }
+
+        .info-value {
+            color: #333;
+        }
+
+        .mood-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 6px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .tag {
+            background: #e0e7ff;
+            color: #667eea;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 13px;
+        }
+
+        .reasoning {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .audio-player {
+            margin-top: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+            padding: 20px;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .examples {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f4ff;
+            border-radius: 10px;
+        }
+
+        .examples h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .example-item {
+            padding: 8px;
+            margin: 5px 0;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background 0.2s;
+            font-size: 14px;
+            color: #555;
+        }
+
+        .example-item:hover {
+            background: white;
+        }
+
+        .intensity-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .intensity-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 GCS Music Streaming</h1>
+        <p class="subtitle">AI-powered Background Music Recommendation with Google Cloud Storage</p>
+
+        <div class="input-section">
+            <label for="prompt">씬 설명을 입력하세요:</label>
+            <textarea
+                id="prompt"
+                placeholder="예: 주인공이 어두운 숲 속에서 신비로운 빛을 발견하고 호기심을 느낀다"
+            ></textarea>
+        </div>
+
+        <div class="button-group">
+            <button id="analyzeBtn" onclick="analyzeScene()">🎼 음악 추천 받기</button>
+            <button onclick="clearResults()">🗑️ 초기화</button>
+        </div>
+
+        <div class="examples">
+            <h3>💡 예시 프롬프트 (클릭하여 입력)</h3>
+            <div class="example-item" onclick="setPrompt('주인공이 숲 속을 탐험하며 여관을 찾아 나선다')">
+                🌲 주인공이 숲 속을 탐험하며 여관을 찾아 나선다
+            </div>
+            <div class="example-item" onclick="setPrompt('갑작스러운 공격으로 마을이 불타오르고 전투가 시작된다')">
+                ⚔️ 갑작스러운 공격으로 마을이 불타오르고 전투가 시작된다
+            </div>
+            <div class="example-item" onclick="setPrompt('주인공과 히로인이 달빛 아래에서 춤을 춘다')">
+                💕 주인공과 히로인이 달빛 아래에서 춤을 춘다
+            </div>
+            <div class="example-item" onclick="setPrompt('오래된 저택에서 이상한 소리가 들리고 두려움을 느낀다')">
+                👻 오래된 저택에서 이상한 소리가 들리고 두려움을 느낀다
+            </div>
+            <div class="example-item" onclick="setPrompt('고대 유적에서 신비로운 문양을 발견하고 호기심이 생긴다')">
+                🔍 고대 유적에서 신비로운 문양을 발견하고 호기심이 생긴다
+            </div>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            분석 중... ⏳
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="result" class="result-section">
+            <div class="result-header">
+                <span>분석 결과</span>
+                <span class="streaming-badge">✓ GCS 직접 스트리밍</span>
+            </div>
+
+            <div class="info-grid">
+                <div class="info-label">무드:</div>
+                <div class="info-value">
+                    <span id="moodValue" class="mood-badge"></span>
+                </div>
+
+                <div class="info-label">강도:</div>
+                <div class="info-value">
+                    <div class="intensity-bar">
+                        <div id="intensityFill" class="intensity-fill"></div>
+                    </div>
+                    <span id="intensityValue"></span>
+                </div>
+
+                <div class="info-label">음악 파일:</div>
+                <div class="info-value" id="filename"></div>
+
+                <div class="info-label">감정 태그:</div>
+                <div class="info-value">
+                    <div id="tags" class="tags"></div>
+                </div>
+            </div>
+
+            <div class="reasoning">
+                <strong>선택 이유:</strong><br>
+                <span id="reasoning"></span>
+            </div>
+
+            <div class="audio-player">
+                <div>🎵 <strong id="nowPlaying"></strong></div>
+                <audio id="audioPlayer" controls autoplay loop></audio>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5001';
+
+        function setPrompt(text) {
+            document.getElementById('prompt').value = text;
+        }
+
+        function clearResults() {
+            document.getElementById('prompt').value = '';
+            document.getElementById('result').classList.remove('show');
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('audioPlayer').pause();
+            document.getElementById('audioPlayer').src = '';
+        }
+
+        async function analyzeScene() {
+            const prompt = document.getElementById('prompt').value.trim();
+
+            if (!prompt) {
+                alert('씬 설명을 입력해주세요!');
+                return;
+            }
+
+            // Show loading, hide previous results
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').classList.remove('show');
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('analyzeBtn').disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ prompt })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayResults(data);
+
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('error').textContent =
+                    `오류 발생: ${error.message}. 서버가 실행 중인지 확인해주세요.`;
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+
+        function displayResults(data) {
+            const { analysis, music } = data;
+
+            // Update mood
+            document.getElementById('moodValue').textContent = music.mood;
+
+            // Update intensity
+            const intensity = (analysis.intensity * 100).toFixed(0);
+            document.getElementById('intensityValue').textContent = `${intensity}%`;
+            document.getElementById('intensityFill').style.width = `${intensity}%`;
+
+            // Update filename
+            document.getElementById('filename').textContent = music.filename;
+
+            // Update tags
+            const tagsContainer = document.getElementById('tags');
+            tagsContainer.innerHTML = '';
+            analysis.emotional_tags.forEach(tag => {
+                const tagEl = document.createElement('span');
+                tagEl.className = 'tag';
+                tagEl.textContent = tag;
+                tagsContainer.appendChild(tagEl);
+            });
+
+            // Update reasoning
+            document.getElementById('reasoning').textContent = analysis.reasoning;
+
+            // Update audio player
+            document.getElementById('nowPlaying').textContent = music.filename;
+            const audioPlayer = document.getElementById('audioPlayer');
+            audioPlayer.src = music.streaming_url;
+            audioPlayer.load();
+
+            // Show results
+            document.getElementById('result').classList.add('show');
+        }
+
+        // Allow Enter key to submit (Shift+Enter for new line)
+        document.getElementById('prompt').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                analyzeScene();
+            }
+        });
+    </script>
+</body>
+</html>
