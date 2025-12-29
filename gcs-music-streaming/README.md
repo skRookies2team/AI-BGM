@@ -1,15 +1,17 @@
-# GCS Music Streaming Service
+# GCS Music Streaming Service (FastAPI)
 
-AI-powered music recommendation service with Google Cloud Storage streaming. Analyzes scene descriptions using GPT-3.5 and recommends appropriate background music from a curated library stored in GCS.
+AI-powered music recommendation service with Google Cloud Storage streaming. Built with FastAPI for high performance and automatic API documentation. Analyzes scene descriptions using GPT-3.5 and recommends appropriate background music from a curated library stored in GCS.
 
 ## Features
 
+- 🚀 **FastAPI Framework**: High-performance async API with automatic documentation
+- 📚 **Auto-Generated Docs**: Interactive API docs at `/docs` (Swagger UI)
 - 🎵 **AI-Powered Analysis**: GPT-3.5 analyzes scene descriptions to determine mood
 - ☁️ **Cloud Streaming**: Direct music streaming from Google Cloud Storage with Signed URLs
 - 🎭 **19 Mood Categories**: From peaceful to epic, horror to comedy
 - 🎼 **273 Music Files**: Curated library from FreePD across 16 genre folders
 - 🔒 **Secure Access**: 60-minute expiring signed URLs for security
-- 🌐 **REST API**: Simple JSON API for easy integration
+- ✅ **Type Safety**: Pydantic models for request/response validation
 
 ## Architecture
 
@@ -95,21 +97,37 @@ This creates `gcs_music_files.json` with all MP3 files from your bucket.
 
 ### 6. Run the Service
 
-**Development Mode (for testing):**
+**Method 1: Using the run script (recommended):**
 ```bash
-python music_service_gcs.py
+python run_server.py
 ```
 
-**Production Mode (recommended for deployment):**
+**Method 2: Direct uvicorn command:**
 ```bash
-python run_production.py
+# Development mode (with auto-reload)
+uvicorn main:app --host 0.0.0.0 --port 8003 --reload
+
+# Production mode
+uvicorn main:app --host 0.0.0.0 --port 8003 --workers 4
+```
+
+**Method 3: Using Python directly:**
+```bash
+python main.py
 ```
 
 Server starts at `http://localhost:8003` (configurable in `.env`)
 
-**Note:** Production mode uses Waitress WSGI server for better performance and stability.
+**Note:** FastAPI uses Uvicorn ASGI server - no development server warnings!
 
-### 7. Test in Browser
+### 7. Explore API Documentation
+
+FastAPI automatically generates interactive API documentation:
+
+- **Swagger UI**: `http://localhost:8003/docs`
+- **ReDoc**: `http://localhost:8003/redoc`
+
+### 8. Test in Browser
 
 Open `music_test_client.html` in your browser or visit `http://localhost:8003`
 
@@ -232,16 +250,19 @@ curl http://localhost:8003/api/moods
 
 ```
 gcs-music-streaming/
-├── music_service_gcs.py      # Main Flask service
+├── main.py                    # FastAPI main application
+├── models.py                  # Pydantic models for validation
 ├── gcs_utils.py               # GCS utility functions
+├── run_server.py              # Production server runner
 ├── music_test_client.html     # Browser test client
 ├── generate_file_list.py      # GCS file list generator
 ├── test_gcs_connection.py     # GCS connection test
+├── test_api.py                # API test script
 ├── requirements.txt           # Python dependencies
-├── .env.example              # Environment template
-├── .gitignore                # Git ignore rules
-├── gcs_music_files.json      # Cached file list (generated)
-└── README.md                 # This file
+├── .env                       # Environment variables
+├── .gitignore                 # Git ignore rules
+├── gcs_music_files.json       # Cached file list (generated)
+└── README.md                  # This file
 ```
 
 ## Key Technical Details
@@ -307,8 +328,6 @@ pip install openai
 | `OPENAI_API_KEY` | OpenAI API key | `sk-proj-xxxxx` |
 | `GCS_BUCKET_NAME` | GCS bucket name | `my-music-bucket` |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Service account key path | `C:\keys\gcs-key.json` |
-| `FLASK_ENV` | Flask environment | `development` |
-| `FLASK_DEBUG` | Debug mode | `True` |
 | `HOST` | Server host | `0.0.0.0` |
 | `PORT` | Server port | `8003` |
 | `CORS_ORIGINS` | CORS allowed origins | `*` |
@@ -318,9 +337,13 @@ pip install openai
 **In `gcs_utils.py`:**
 - `expiration_minutes`: Signed URL expiration time (default: 60)
 
-**In `music_service_gcs.py`:**
+**In `main.py`:**
 - `MUSIC_LIBRARY`: Add/modify mood mappings and folders
 - `temperature`: GPT creativity (default: 0.7)
+
+**In `run_server.py`:**
+- `reload`: Enable/disable auto-reload on code changes
+- `workers`: Number of worker processes for production
 
 ## Security Notes
 

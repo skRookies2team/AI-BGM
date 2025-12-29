@@ -1,7 +1,6 @@
-flask==3.0.0
-flask-cors==4.0.0
-openai>=2.0.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+openai>=1.0.0
 python-dotenv==1.0.0
 google-cloud-storage==2.14.0
 google-auth==2.25.2
-waitress==3.0.2

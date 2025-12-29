@@ -1,16 +1,29 @@
 """
-GCS Music Streaming Service
+FastAPI Music Streaming Service
 AI-powered music recommendation with Google Cloud Storage streaming
 """
 
 import os
 import json
 import logging
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
+import random
+from typing import Dict
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from openai import OpenAI
 from dotenv import load_dotenv
+
 from gcs_utils import GCSMusicManager
+from models import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    MusicAnalysis,
+    MusicInfo,
+    MoodInfo,
+    HealthResponse,
+    ErrorResponse
+)
 
 # Load environment variables
 load_dotenv()
@@ -22,9 +35,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Flask app
-app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})
+# Initialize FastAPI app
+app = FastAPI(
+    title="GCS Music Streaming Service",
+    description="AI-powered music recommendation with Google Cloud Storage streaming",
+    version="3.0-FastAPI"
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv('CORS_ORIGINS', '*').split(','),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -116,7 +141,7 @@ MUSIC_LIBRARY = {
 }
 
 
-def analyze_scene_with_gpt(prompt):
+def analyze_scene_with_gpt(prompt: str) -> Dict:
     """
     Analyze scene description using GPT-3.5 and extract mood information
     """
@@ -184,7 +209,7 @@ JSON 형식으로 응답해주세요:
         }
 
 
-def post_process_mood(analysis, original_prompt):
+def post_process_mood(analysis: Dict, original_prompt: str) -> Dict:
     """
     Post-process mood selection to fix common GPT misclassifications
     """
@@ -216,7 +241,7 @@ def post_process_mood(analysis, original_prompt):
     return analysis
 
 
-def select_music_from_mood(mood):
+def select_music_from_mood(mood: str) -> str:
     """
     Select a random music file from folders associated with the given mood
     """
@@ -232,111 +257,116 @@ def select_music_from_mood(mood):
 
     if not all_files:
         logger.error(f"No files found for mood '{mood}' in folders {folders}")
-        return None
+        raise HTTPException(status_code=404, detail=f"No music files found for mood '{mood}'")
 
     # Select random file
-    import random
     selected_file = random.choice(all_files)
 
     logger.info(f"Selected file: {selected_file} for mood '{mood}'")
     return selected_file
 
 
-@app.route('/api/analyze', methods=['POST'])
-def analyze():
+@app.post("/api/analyze", response_model=AnalyzeResponse, responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
+async def analyze(request: AnalyzeRequest):
     """
     Main endpoint: Analyze scene and return music recommendation with GCS streaming URL
     """
     try:
-        data = request.get_json()
-        prompt = data.get('prompt', '')
-
-        if not prompt:
-            return jsonify({'error': 'Prompt is required'}), 400
-
+        prompt = request.prompt
         logger.info(f"Received prompt: {prompt}")
 
         # Step 1: Analyze with GPT
-        analysis = analyze_scene_with_gpt(prompt)
+        analysis_dict = analyze_scene_with_gpt(prompt)
 
         # Step 2: Post-process mood
-        analysis = post_process_mood(analysis, prompt)
+        analysis_dict = post_process_mood(analysis_dict, prompt)
 
         # Step 3: Select music file
-        mood = analysis['primary_mood']
+        mood = analysis_dict['primary_mood']
         selected_file = select_music_from_mood(mood)
-
-        if not selected_file:
-            return jsonify({'error': 'No music file found for the selected mood'}), 404
 
         # Step 4: Generate signed URL
         streaming_url = gcs_manager.generate_signed_url(selected_file)
 
+        if not streaming_url:
+            raise HTTPException(status_code=500, detail="Failed to generate streaming URL")
+
         # Step 5: Prepare response
-        response = {
-            'analysis': analysis,
-            'music': {
-                'mood': mood,
-                'filename': os.path.basename(selected_file),
-                'file_path': selected_file,
-                'streaming_url': streaming_url
-            }
-        }
+        analysis = MusicAnalysis(**analysis_dict)
+        music = MusicInfo(
+            mood=mood,
+            filename=os.path.basename(selected_file),
+            file_path=selected_file,
+            streaming_url=streaming_url
+        )
 
-        logger.info(f"Response: {response}")
-        return jsonify(response)
+        response = AnalyzeResponse(analysis=analysis, music=music)
+        logger.info(f"Response prepared successfully")
+        return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in analyze endpoint: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.route('/api/moods', methods=['GET'])
-def get_moods():
+@app.get("/api/moods", response_model=Dict[str, MoodInfo])
+async def get_moods():
     """
     List all available moods and their mapped folders
     """
     moods_info = {}
     for mood, info in MUSIC_LIBRARY.items():
-        moods_info[mood] = {
-            'keywords': info['keywords'],
-            'folders': info['folders']
-        }
-    return jsonify(moods_info)
+        moods_info[mood] = MoodInfo(
+            keywords=info['keywords'],
+            folders=info['folders']
+        )
+    return moods_info
 
 
-@app.route('/api/health', methods=['GET'])
-def health():
+@app.get("/api/health", response_model=HealthResponse)
+async def health():
     """
     Health check endpoint
     """
-    return jsonify({
-        'status': 'healthy',
-        'version': '2.0-GCS',
-        'gcs_bucket': os.getenv('GCS_BUCKET_NAME'),
-        'total_files': len(gcs_manager.all_files)
-    })
+    return HealthResponse(
+        status="healthy",
+        version="3.0-FastAPI",
+        gcs_bucket=os.getenv('GCS_BUCKET_NAME', ''),
+        total_files=len(gcs_manager.all_files)
+    )
 
 
-@app.route('/')
-def index():
+@app.get("/")
+async def index():
     """
     Serve test client HTML
     """
-    return send_from_directory('.', 'music_test_client.html')
+    return FileResponse('music_test_client.html')
 
 
-if __name__ == '__main__':
-    # Verify GCS connection on startup
+@app.on_event("startup")
+async def startup_event():
+    """
+    Run on application startup
+    """
+    # Verify GCS connection
     if gcs_manager.verify_connection():
         logger.info("GCS connection verified successfully")
         logger.info(f"Total files loaded: {len(gcs_manager.all_files)}")
     else:
         logger.error("GCS connection failed! Check your credentials and bucket name.")
 
-    # Start Flask server
+    logger.info("FastAPI Music Streaming Service started successfully")
+    logger.info(f"Documentation available at http://localhost:{os.getenv('PORT', 8003)}/docs")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 8003))
 
-    logger.info(f"Starting GCS Music Streaming Service on {host}:{port}")
-    app.run(host=host, port=port, debug=os.getenv('FLASK_DEBUG', 'True') == 'True')
+    logger.info(f"Starting FastAPI Music Streaming Service on {host}:{port}")
+    uvicorn.run(app, host=host, port=port)
