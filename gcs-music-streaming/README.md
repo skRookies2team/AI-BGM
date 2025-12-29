@@ -95,15 +95,23 @@ This creates `gcs_music_files.json` with all MP3 files from your bucket.
 
 ### 6. Run the Service
 
+**Development Mode (for testing):**
 ```bash
 python music_service_gcs.py
 ```
 
-Server starts at `http://localhost:5001`
+**Production Mode (recommended for deployment):**
+```bash
+python run_production.py
+```
+
+Server starts at `http://localhost:8003` (configurable in `.env`)
+
+**Note:** Production mode uses Waitress WSGI server for better performance and stability.
 
 ### 7. Test in Browser
 
-Open `music_test_client.html` in your browser or visit `http://localhost:5001`
+Open `music_test_client.html` in your browser or visit `http://localhost:8003`
 
 ## API Endpoints
 
@@ -302,7 +310,7 @@ pip install openai
 | `FLASK_ENV` | Flask environment | `development` |
 | `FLASK_DEBUG` | Debug mode | `True` |
 | `HOST` | Server host | `0.0.0.0` |
-| `PORT` | Server port | `5001` |
+| `PORT` | Server port | `8003` |
 | `CORS_ORIGINS` | CORS allowed origins | `*` |
 
 ### Adjustable Parameters
@@ -365,7 +373,7 @@ public class MusicService {
 
     public MusicService(WebClient.Builder webClientBuilder) {
         this.webClient = webClientBuilder
-            .baseUrl("http://localhost:5001")
+            .baseUrl("http://localhost:8003")
             .build();
     }
 
@@ -512,7 +520,7 @@ async def get_episode(episode_id: int):
     # 음악 서비스 호출
     async with httpx.AsyncClient() as client:
         music_response = await client.post(
-            'http://localhost:5001/api/analyze',
+            'http://localhost:8003/api/analyze',
             json={'prompt': episode['scene_description']}
         )
         music_data = music_response.json()
@@ -535,7 +543,7 @@ app.get('/api/game/episode/:id', async (req, res) => {
     const episode = await getEpisode(req.params.id);
 
     // 음악 서비스 호출
-    const musicResponse = await axios.post('http://localhost:5001/api/analyze', {
+    const musicResponse = await axios.post('http://localhost:8003/api/analyze', {
         prompt: episode.sceneDescription
     });
 
@@ -549,8 +557,8 @@ app.get('/api/game/episode/:id', async (req, res) => {
 
 ### Integration Checklist
 
-- [ ] 음악 서비스가 `localhost:5001`에서 실행 중인지 확인
-- [ ] 백엔드에서 `http://localhost:5001/api/analyze` 호출 가능한지 테스트
+- [ ] 음악 서비스가 `localhost:8003`에서 실행 중인지 확인
+- [ ] 백엔드에서 `http://localhost:8003/api/analyze` 호출 가능한지 테스트
 - [ ] 게임 데이터에 `scene_description` 필드 포함
 - [ ] 프론트엔드에서 `bgmUrl` 받아서 오디오 재생
 - [ ] 음악 loop 설정 (`<audio loop>`)
@@ -563,7 +571,7 @@ app.get('/api/game/episode/:id', async (req, res) => {
 ```javascript
 // 막 시작 시 직접 호출
 async function playMusicForScene(sceneDescription) {
-    const response = await fetch('http://localhost:5001/api/analyze', {
+    const response = await fetch('http://localhost:8003/api/analyze', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({prompt: sceneDescription})
