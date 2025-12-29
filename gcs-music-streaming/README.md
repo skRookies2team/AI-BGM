@@ -325,6 +325,259 @@ pip install openai
 
 This project uses FreePD music library (public domain).
 
+## Backend Integration Guide
+
+### For Java/Spring Backend
+
+팀원이 Java/Spring 백엔드와 연동하는 방법:
+
+#### 1. Add Dependencies (build.gradle or pom.xml)
+
+**Gradle:**
+```gradle
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux' // For WebClient
+}
+```
+
+**Maven:**
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-webflux</artifactId>
+</dependency>
+```
+
+#### 2. Create Music Service Client
+
+```java
+package com.example.service;
+
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+@Service
+public class MusicService {
+
+    private final WebClient webClient;
+
+    public MusicService(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder
+            .baseUrl("http://localhost:5001")
+            .build();
+    }
+
+    public MusicResponse getMusic(String sceneDescription) {
+        return webClient.post()
+            .uri("/api/analyze")
+            .bodyValue(Map.of("prompt", sceneDescription))
+            .retrieve()
+            .bodyToMono(MusicResponse.class)
+            .block();
+    }
+
+    // Async version
+    public Mono<MusicResponse> getMusicAsync(String sceneDescription) {
+        return webClient.post()
+            .uri("/api/analyze")
+            .bodyValue(Map.of("prompt", sceneDescription))
+            .retrieve()
+            .bodyToMono(MusicResponse.class);
+    }
+}
+```
+
+#### 3. Create Response DTOs
+
+```java
+package com.example.dto;
+
+import lombok.Data;
+
+@Data
+public class MusicResponse {
+    private Analysis analysis;
+    private Music music;
+
+    @Data
+    public static class Analysis {
+        private String primaryMood;
+        private String secondaryMood;
+        private Double intensity;
+        private List<String> emotionalTags;
+        private String reasoning;
+    }
+
+    @Data
+    public static class Music {
+        private String mood;
+        private String filename;
+        private String filePath;
+        private String streamingUrl;
+    }
+}
+```
+
+#### 4. Use in Game Controller
+
+```java
+package com.example.controller;
+
+import org.springframework.web.bind.annotation.*;
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/api/game")
+@RequiredArgsConstructor
+public class GameController {
+
+    private final MusicService musicService;
+    private final EpisodeService episodeService;
+
+    @GetMapping("/episode/{episodeId}")
+    public GameResponse getEpisode(@PathVariable Long episodeId) {
+        // 게임 데이터 로드
+        Episode episode = episodeService.getEpisode(episodeId);
+
+        // 음악 추천 받기
+        MusicResponse music = musicService.getMusic(episode.getSceneDescription());
+
+        // 게임 데이터 + 음악 URL 함께 반환
+        return GameResponse.builder()
+            .episode(episode)
+            .bgmUrl(music.getMusic().getStreamingUrl())
+            .mood(music.getMusic().getMood())
+            .build();
+    }
+
+    @PostMapping("/scene/change")
+    public MusicResponse changeScene(@RequestBody SceneRequest request) {
+        // 막이 바뀔 때마다 호출
+        return musicService.getMusic(request.getSceneDescription());
+    }
+}
+```
+
+#### 5. Frontend Integration Example
+
+**JavaScript/React:**
+```javascript
+// 게임 시작 시
+async function startGame(episodeId) {
+    const response = await fetch(`/api/game/episode/${episodeId}`);
+    const data = await response.json();
+
+    // 게임 데이터 사용
+    loadEpisode(data.episode);
+
+    // 음악 재생
+    const audio = document.getElementById('bgm-player');
+    audio.src = data.bgmUrl;
+    audio.loop = true;
+    audio.play();
+}
+
+// 막 전환 시
+async function changeScene(sceneDescription) {
+    const response = await fetch('/api/game/scene/change', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sceneDescription})
+    });
+
+    const data = await response.json();
+
+    // 새 음악으로 전환
+    const audio = document.getElementById('bgm-player');
+    audio.src = data.music.streamingUrl;
+    audio.play();
+}
+```
+
+### For Python/FastAPI Backend
+
+```python
+from fastapi import FastAPI
+import httpx
+
+app = FastAPI()
+
+@app.get("/api/game/episode/{episode_id}")
+async def get_episode(episode_id: int):
+    # 게임 데이터 로드
+    episode = await get_episode_data(episode_id)
+
+    # 음악 서비스 호출
+    async with httpx.AsyncClient() as client:
+        music_response = await client.post(
+            'http://localhost:5001/api/analyze',
+            json={'prompt': episode['scene_description']}
+        )
+        music_data = music_response.json()
+
+    return {
+        'episode': episode,
+        'bgm_url': music_data['music']['streaming_url'],
+        'mood': music_data['music']['mood']
+    }
+```
+
+### For Node.js/Express Backend
+
+```javascript
+const express = require('express');
+const axios = require('axios');
+
+app.get('/api/game/episode/:id', async (req, res) => {
+    // 게임 데이터 로드
+    const episode = await getEpisode(req.params.id);
+
+    // 음악 서비스 호출
+    const musicResponse = await axios.post('http://localhost:5001/api/analyze', {
+        prompt: episode.sceneDescription
+    });
+
+    res.json({
+        episode: episode,
+        bgmUrl: musicResponse.data.music.streaming_url,
+        mood: musicResponse.data.music.mood
+    });
+});
+```
+
+### Integration Checklist
+
+- [ ] 음악 서비스가 `localhost:5001`에서 실행 중인지 확인
+- [ ] 백엔드에서 `http://localhost:5001/api/analyze` 호출 가능한지 테스트
+- [ ] 게임 데이터에 `scene_description` 필드 포함
+- [ ] 프론트엔드에서 `bgmUrl` 받아서 오디오 재생
+- [ ] 음악 loop 설정 (`<audio loop>`)
+- [ ] CORS 설정 확인 (필요시)
+
+### Direct API Usage (Without Backend Integration)
+
+프론트엔드에서 직접 음악 서비스 API 호출:
+
+```javascript
+// 막 시작 시 직접 호출
+async function playMusicForScene(sceneDescription) {
+    const response = await fetch('http://localhost:5001/api/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({prompt: sceneDescription})
+    });
+
+    const data = await response.json();
+
+    const audio = document.getElementById('bgm-player');
+    audio.src = data.music.streaming_url;
+    audio.loop = true;
+    audio.play();
+}
+```
+
 ## Support
 
 For issues or questions:
