@@ -5,7 +5,7 @@ Test the Music Streaming API endpoints
 import requests
 import json
 
-API_BASE_URL = 'http://localhost:5001'
+API_BASE_URL = 'http://localhost:8003'
 
 
 def print_section(title):

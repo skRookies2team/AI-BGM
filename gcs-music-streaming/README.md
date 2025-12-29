@@ -210,15 +210,15 @@ python test_gcs_connection.py
 
 ```bash
 # Using curl
-curl -X POST http://localhost:5001/api/analyze \
+curl -X POST http://localhost:8003/api/analyze \
   -H "Content-Type: application/json" \
   -d '{"prompt": "주인공이 숲 속을 탐험한다"}'
 
 # Check health
-curl http://localhost:5001/api/health
+curl http://localhost:8003/api/health
 
 # List moods
-curl http://localhost:5001/api/moods
+curl http://localhost:8003/api/moods
 ```
 
 ### Browser Test

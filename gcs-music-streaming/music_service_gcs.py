@@ -336,7 +336,7 @@ if __name__ == '__main__':
 
     # Start Flask server
     host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 5001))
+    port = int(os.getenv('PORT', 8003))
 
     logger.info(f"Starting GCS Music Streaming Service on {host}:{port}")
     app.run(host=host, port=port, debug=os.getenv('FLASK_DEBUG', 'True') == 'True')

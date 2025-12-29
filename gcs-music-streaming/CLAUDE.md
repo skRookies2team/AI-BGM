@@ -21,10 +21,10 @@ python generate_file_list.py
 
 # Run service
 python music_service_gcs.py
-# Server starts at http://localhost:5001
+# Server starts at http://localhost:8003
 
 # Test in browser
-# Open music_test_client.html or visit http://localhost:5001
+# Open music_test_client.html or visit http://localhost:8003
 ```
 
 ## Testing
@@ -37,7 +37,7 @@ python test_gcs_connection.py
 python test_api.py
 
 # Manual API test
-curl -X POST http://localhost:5001/api/analyze \
+curl -X POST http://localhost:8003/api/analyze \
   -H "Content-Type: application/json" \
   -d '{"prompt": "주인공이 숲 속을 탐험한다"}'
 ```
@@ -121,7 +121,7 @@ python generate_file_list.py
 OPENAI_API_KEY=sk-proj-xxxxx              # Required for GPT-3.5
 GCS_BUCKET_NAME=your-bucket-name           # GCS bucket with music files
 GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\gcs-service-account-key.json  # Absolute path
-PORT=5001
+PORT=8003
 HOST=0.0.0.0
 CORS_ORIGINS=*
 ```
