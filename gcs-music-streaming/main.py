@@ -1,13 +1,24 @@
 """
 FastAPI Music Streaming Service
 AI-powered music recommendation with Google Cloud Storage streaming
+
+Improvements:
+- GPT response caching
+- Music duplicate prevention
+- GPT API retry mechanism
+- Signed URL caching
+- Mood similarity fallback
 """
 
 import os
 import json
 import logging
 import random
-from typing import Dict
+import hashlib
+import time
+from typing import Dict, List, Optional, Deque
+from collections import deque
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -39,7 +50,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="GCS Music Streaming Service",
     description="AI-powered music recommendation with Google Cloud Storage streaming",
-    version="3.0-FastAPI"
+    version="3.1-Enhanced"
 )
 
 # Configure CORS
@@ -140,13 +151,121 @@ MUSIC_LIBRARY = {
     }
 }
 
+# Mood similarity mapping (for fallback when no files found)
+MOOD_SIMILARITY = {
+    'peaceful': ['nostalgic', 'isolation', 'romantic'],
+    'romantic': ['peaceful', 'sad', 'nostalgic'],
+    'mysterious': ['curious', 'suspense', 'wonder'],
+    'suspense': ['tension', 'mysterious', 'horror'],
+    'horror': ['suspense', 'tension', 'dark_comedy'],
+    'action': ['epic', 'tension', 'uplifting'],
+    'fantasy': ['wonder', 'exploration', 'mysterious'],
+    'epic': ['action', 'dramatic', 'fantasy'],
+    'comedy': ['uplifting', 'dark_comedy', 'peaceful'],
+    'uplifting': ['comedy', 'action', 'wonder'],
+    'sad': ['romantic', 'nostalgic', 'isolation'],
+    'exploration': ['fantasy', 'wonder', 'curious'],
+    'dramatic': ['epic', 'sad', 'romantic'],
+    'tension': ['suspense', 'action', 'horror'],
+    'wonder': ['fantasy', 'exploration', 'uplifting'],
+    'curious': ['mysterious', 'exploration', 'wonder'],
+    'isolation': ['sad', 'peaceful', 'nostalgic'],
+    'nostalgic': ['sad', 'romantic', 'peaceful'],
+    'dark_comedy': ['comedy', 'horror', 'suspense']
+}
 
-def analyze_scene_with_gpt(prompt: str) -> Dict:
+# Cache configuration
+GPT_CACHE_MAX_SIZE = 100
+GPT_CACHE_EXPIRY_HOURS = 24
+URL_CACHE_EXPIRY_MINUTES = 50  # Regenerate before 60-min expiration
+RECENT_TRACKS_SIZE = 10  # Number of recent tracks to avoid
+
+# Global caches
+gpt_cache: Dict[str, Dict] = {}  # {prompt_hash: {result: dict, timestamp: float}}
+url_cache: Dict[str, Dict] = {}  # {blob_name: {url: str, timestamp: float}}
+recent_tracks: Deque[str] = deque(maxlen=RECENT_TRACKS_SIZE)
+
+
+def get_prompt_hash(prompt: str) -> str:
+    """Generate hash for prompt caching"""
+    return hashlib.md5(prompt.encode('utf-8')).hexdigest()
+
+
+def get_cached_gpt_response(prompt: str) -> Optional[Dict]:
+    """Retrieve cached GPT response if available and not expired"""
+    prompt_hash = get_prompt_hash(prompt)
+
+    if prompt_hash not in gpt_cache:
+        return None
+
+    cached = gpt_cache[prompt_hash]
+    age_hours = (time.time() - cached['timestamp']) / 3600
+
+    if age_hours > GPT_CACHE_EXPIRY_HOURS:
+        # Expired, remove from cache
+        del gpt_cache[prompt_hash]
+        logger.info(f"GPT cache expired for prompt hash: {prompt_hash}")
+        return None
+
+    logger.info(f"GPT cache hit for prompt hash: {prompt_hash} (age: {age_hours:.2f}h)")
+    return cached['result']
+
+
+def cache_gpt_response(prompt: str, result: Dict):
+    """Cache GPT response with timestamp"""
+    prompt_hash = get_prompt_hash(prompt)
+
+    # LRU eviction if cache is full
+    if len(gpt_cache) >= GPT_CACHE_MAX_SIZE:
+        # Remove oldest entry
+        oldest_key = min(gpt_cache.keys(), key=lambda k: gpt_cache[k]['timestamp'])
+        del gpt_cache[oldest_key]
+        logger.info(f"GPT cache full, evicted oldest entry")
+
+    gpt_cache[prompt_hash] = {
+        'result': result,
+        'timestamp': time.time()
+    }
+    logger.info(f"Cached GPT response for prompt hash: {prompt_hash}")
+
+
+def get_cached_signed_url(blob_name: str) -> Optional[str]:
+    """Retrieve cached signed URL if available and not expired"""
+    if blob_name not in url_cache:
+        return None
+
+    cached = url_cache[blob_name]
+    age_minutes = (time.time() - cached['timestamp']) / 60
+
+    if age_minutes > URL_CACHE_EXPIRY_MINUTES:
+        # Expired, remove from cache
+        del url_cache[blob_name]
+        logger.info(f"URL cache expired for: {blob_name}")
+        return None
+
+    logger.info(f"URL cache hit for: {blob_name} (age: {age_minutes:.2f}m)")
+    return cached['url']
+
+
+def cache_signed_url(blob_name: str, url: str):
+    """Cache signed URL with timestamp"""
+    url_cache[blob_name] = {
+        'url': url,
+        'timestamp': time.time()
+    }
+    logger.info(f"Cached signed URL for: {blob_name}")
+
+
+def analyze_scene_with_gpt(prompt: str, retry_count: int = 3) -> Dict:
     """
-    Analyze scene description using GPT-3.5 and extract mood information
+    Analyze scene description using GPT-3.5 with caching and retry
     """
-    try:
-        system_prompt = """당신은 게임 스토리 분석 전문가입니다.
+    # Check cache first
+    cached_result = get_cached_gpt_response(prompt)
+    if cached_result:
+        return cached_result
+
+    system_prompt = """당신은 게임 스토리 분석 전문가입니다.
 주어진 에피소드나 씬 설명을 분석하여 적합한 배경음악의 무드를 추천해주세요.
 
 사용 가능한 무드:
@@ -184,29 +303,45 @@ JSON 형식으로 응답해주세요:
   "reasoning": "선택 이유 설명"
 }"""
 
-        response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.7
-        )
+    # Retry logic
+    last_error = None
+    for attempt in range(retry_count):
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.7
+            )
 
-        analysis = json.loads(response.choices[0].message.content)
-        logger.info(f"GPT Analysis: {analysis}")
-        return analysis
+            analysis = json.loads(response.choices[0].message.content)
+            logger.info(f"GPT Analysis (attempt {attempt + 1}): {analysis}")
 
-    except Exception as e:
-        logger.error(f"GPT analysis failed: {e}")
-        return {
-            "primary_mood": "peaceful",
-            "secondary_mood": None,
-            "intensity": 0.5,
-            "emotional_tags": [],
-            "reasoning": "GPT 분석 실패로 기본 무드 사용"
-        }
+            # Cache the result
+            cache_gpt_response(prompt, analysis)
+
+            return analysis
+
+        except Exception as e:
+            last_error = e
+            logger.warning(f"GPT analysis attempt {attempt + 1} failed: {e}")
+            if attempt < retry_count - 1:
+                wait_time = (attempt + 1) * 2  # Exponential backoff: 2s, 4s, 6s
+                logger.info(f"Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+
+    # All retries failed, return default
+    logger.error(f"GPT analysis failed after {retry_count} attempts: {last_error}")
+    return {
+        "primary_mood": "peaceful",
+        "secondary_mood": None,
+        "intensity": 0.5,
+        "emotional_tags": [],
+        "reasoning": "GPT 분석 실패로 기본 무드 사용"
+    }
 
 
 def post_process_mood(analysis: Dict, original_prompt: str) -> Dict:
@@ -241,9 +376,10 @@ def post_process_mood(analysis: Dict, original_prompt: str) -> Dict:
     return analysis
 
 
-def select_music_from_mood(mood: str) -> str:
+def select_music_from_mood(mood: str, avoid_duplicates: bool = True) -> str:
     """
     Select a random music file from folders associated with the given mood
+    Avoids recently played tracks
     """
     if mood not in MUSIC_LIBRARY:
         logger.warning(f"Mood '{mood}' not found in library, using 'peaceful'")
@@ -256,11 +392,34 @@ def select_music_from_mood(mood: str) -> str:
     all_files = gcs_manager.get_files_from_folders(folders)
 
     if not all_files:
-        logger.error(f"No files found for mood '{mood}' in folders {folders}")
-        raise HTTPException(status_code=404, detail=f"No music files found for mood '{mood}'")
+        # Try similar moods as fallback
+        logger.warning(f"No files found for mood '{mood}', trying similar moods")
+        similar_moods = MOOD_SIMILARITY.get(mood, [])
+
+        for similar_mood in similar_moods:
+            similar_folders = MUSIC_LIBRARY[similar_mood]['folders']
+            all_files = gcs_manager.get_files_from_folders(similar_folders)
+            if all_files:
+                logger.info(f"Using similar mood '{similar_mood}' instead of '{mood}'")
+                mood = similar_mood
+                break
+
+        if not all_files:
+            logger.error(f"No files found for mood '{mood}' or similar moods")
+            raise HTTPException(status_code=404, detail=f"No music files found for mood '{mood}'")
+
+    # Filter out recently played tracks
+    if avoid_duplicates and len(all_files) > RECENT_TRACKS_SIZE:
+        available_files = [f for f in all_files if f not in recent_tracks]
+        if available_files:
+            all_files = available_files
+            logger.info(f"Filtered out {len(recent_tracks)} recent tracks, {len(all_files)} available")
 
     # Select random file
     selected_file = random.choice(all_files)
+
+    # Add to recent tracks
+    recent_tracks.append(selected_file)
 
     logger.info(f"Selected file: {selected_file} for mood '{mood}'")
     return selected_file
@@ -275,18 +434,24 @@ async def analyze(request: AnalyzeRequest):
         prompt = request.prompt
         logger.info(f"Received prompt: {prompt}")
 
-        # Step 1: Analyze with GPT
+        # Step 1: Analyze with GPT (with caching and retry)
         analysis_dict = analyze_scene_with_gpt(prompt)
 
         # Step 2: Post-process mood
         analysis_dict = post_process_mood(analysis_dict, prompt)
 
-        # Step 3: Select music file
+        # Step 3: Select music file (with duplicate prevention)
         mood = analysis_dict['primary_mood']
         selected_file = select_music_from_mood(mood)
 
-        # Step 4: Generate signed URL
-        streaming_url = gcs_manager.generate_signed_url(selected_file)
+        # Step 4: Generate signed URL (with caching)
+        cached_url = get_cached_signed_url(selected_file)
+        if cached_url:
+            streaming_url = cached_url
+        else:
+            streaming_url = gcs_manager.generate_signed_url(selected_file)
+            if streaming_url:
+                cache_signed_url(selected_file, streaming_url)
 
         if not streaming_url:
             raise HTTPException(status_code=500, detail="Failed to generate streaming URL")
@@ -328,14 +493,64 @@ async def get_moods():
 @app.get("/api/health", response_model=HealthResponse)
 async def health():
     """
-    Health check endpoint
+    Health check endpoint with cache statistics
     """
     return HealthResponse(
         status="healthy",
-        version="3.0-FastAPI",
+        version="3.1-Enhanced",
         gcs_bucket=os.getenv('GCS_BUCKET_NAME', ''),
         total_files=len(gcs_manager.all_files)
     )
+
+
+@app.get("/api/cache/stats")
+async def cache_stats():
+    """
+    Cache statistics endpoint
+    """
+    return {
+        "gpt_cache": {
+            "size": len(gpt_cache),
+            "max_size": GPT_CACHE_MAX_SIZE,
+            "expiry_hours": GPT_CACHE_EXPIRY_HOURS
+        },
+        "url_cache": {
+            "size": len(url_cache),
+            "expiry_minutes": URL_CACHE_EXPIRY_MINUTES
+        },
+        "recent_tracks": {
+            "size": len(recent_tracks),
+            "max_size": RECENT_TRACKS_SIZE,
+            "tracks": list(recent_tracks)
+        }
+    }
+
+
+@app.post("/api/cache/clear")
+async def clear_cache():
+    """
+    Clear all caches
+    """
+    global gpt_cache, url_cache, recent_tracks
+
+    gpt_cache_size = len(gpt_cache)
+    url_cache_size = len(url_cache)
+    tracks_size = len(recent_tracks)
+
+    gpt_cache = {}
+    url_cache = {}
+    recent_tracks = deque(maxlen=RECENT_TRACKS_SIZE)
+
+    logger.info("All caches cleared")
+
+    return {
+        "message": "All caches cleared",
+        "cleared": {
+            "gpt_cache": gpt_cache_size,
+            "url_cache": url_cache_size,
+            "recent_tracks": tracks_size
+        }
+    }
 
 
 @app.get("/")
@@ -359,6 +574,7 @@ async def startup_event():
         logger.error("GCS connection failed! Check your credentials and bucket name.")
 
     logger.info("FastAPI Music Streaming Service started successfully")
+    logger.info(f"Version: 3.1-Enhanced with caching and improvements")
     logger.info(f"Documentation available at http://localhost:{os.getenv('PORT', 8003)}/docs")
 
 
